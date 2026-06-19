@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "unemployed-rag-pipeline"
+version = "0.1.0"
+description = "Baseline Python project scaffold for the Unemployed RAG Pipeline."
+readme = "README.md"
+requires-python = ">=3.10"
+
+[project.scripts]
+unemployed-rag-pipeline = "unemployed_rag_pipeline.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
