@@ -1,90 +1,115 @@
 # Unemployed---RAG-Pipeline
-Unemployed is a reproducible, terminal-based analytics platform that lets researchers query decades of U.S. labor market data using natural language, stored in a RAG database.
 
-## Baseline Python project structure
+Unemployed is a reproducible, terminal-based analytics platform for querying decades of U.S. labor market data with natural language.
+
+CS 4365/6365: Introduction to Enterprise Computing — Summer 2026, Georgia Institute of Technology
+
+Author: Aiden Dowling
+
+## Current project state
+
+The project now has three working pieces:
+
+1. Data ingestion into DuckDB
+2. Retrieval/indexing with Chroma and BM25
+3. A CLI entry point that exposes both steps
+
+## Project structure
 
 ```
 .
+├── .env.example
 ├── pyproject.toml
 └── src/
     └── unemployed_rag_pipeline/
         ├── __init__.py
+        ├── ingestion.py
+        ├── indexing.py
         └── main.py
 ```
 
-Run the baseline CLI module locally:
+## Environment setup
+
+Copy the example environment file before running anything:
+
+```bash
+cp .env.example .env
+```
+
+Fill in your local API key and adjust paths if needed.
+
+## Dependencies
+
+The project uses:
+
+- Python 3.10+
+- Pandas
+- DuckDB
+- PyArrow
+- ChromaDB
+- sentence-transformers
+- rank-bm25
+
+## CLI commands
+
+Run the app help:
 
 ```bash
 PYTHONPATH=src python -m unemployed_rag_pipeline.main
 ```
-=======
 
-A terminal-based RAG pipeline for big labor market data integration and knowledge obsolescence detection.
-CS 4365/6365: Introduction to Enterprise Computing — Summer 2026, Georgia Institute of Technology
-Author: Aiden Dowling
+### Ingest raw files
 
-## Why This Project
-
-Most labor-market analytics tools are either static dashboards (no natural-language interface) or general-purpose LLMs (no grounding in real survey data, and no awareness of when their training data went stale). LaborLens sits in between: a small, reproducible RAG system purpose-built for longitudinal socioeconomic data, with explicit handling of knowledge obsolescence — the fact that labor statistics are constantly revised, re-vintaged, and structurally redefined (e.g., CPS survey redesigns in 1994 and 2003).
-
-## Tech Stack
-
-Data wrangling: Python, Pandas, DuckDB
-Embeddings & retrieval: LangChain, sentence-transformers, ChromaDB, BM25Okapi
-Generation: OpenRouter API (free-tier model) via LangChain's ChatOpenAI client
-Evaluation: RAGAS
-Interface: Python CLI
-
-## Data ingestion wiring
-
-The first working part of the pipeline is the ingestion layer. It scans a raw data directory, loads supported files into DuckDB, and creates one table per file.
-
-Supported input formats:
+Supported formats:
 
 - .csv
 - .tsv
 - .txt
 - .parquet
 
-Default locations:
+Default input and output paths:
 
 - Raw inputs: data/raw
 - DuckDB database: data/processed/unemployed_rag.duckdb
 
-Run ingestion from the command line:
+Command:
 
 ```bash
 PYTHONPATH=src python -m unemployed_rag_pipeline.main ingest
 ```
 
-To force a rebuild of the database:
+Force a rebuild:
 
 ```bash
 PYTHONPATH=src python -m unemployed_rag_pipeline.main ingest --clear
 ```
 
-## Retrieval/indexing wiring
+### Build retrieval indexes
 
-The next step is the retrieval layer. It reads the DuckDB tables produced by ingestion, turns each row into a text document, and builds two artifacts:
+The index step reads the DuckDB tables and creates:
 
 - A Chroma vector collection for semantic search
-- A BM25 corpus for sparse lexical search
+- A BM25 corpus for lexical search
 
 Default locations:
 
 - DuckDB input: data/processed/unemployed_rag.duckdb
 - Index output: data/indexes
 
-Run indexing from the command line:
+Command:
 
 ```bash
 PYTHONPATH=src python -m unemployed_rag_pipeline.main index
 ```
 
-To rebuild everything from scratch:
+Rebuild from scratch:
 
 ```bash
 PYTHONPATH=src python -m unemployed_rag_pipeline.main index --clear
 ```
+
+## Notes
+
+This is still the wiring stage of the pipeline. The next major step is query-time retrieval and answer generation.
 
 
