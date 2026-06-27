@@ -8,6 +8,14 @@ version = "0.1.0"
 description = "Baseline Python project scaffold for the Unemployed RAG Pipeline."
 readme = "README.md"
 requires-python = ">=3.10"
+dependencies = [
+	"duckdb>=1.0.0",
+	"pandas>=2.2.0",
+	"pyarrow>=16.0.0",
+	"chromadb>=0.5.0",
+	"sentence-transformers>=3.0.0",
+	"rank-bm25>=0.2.2",
+]
 
 [project.scripts]
 unemployed-rag-pipeline = "unemployed_rag_pipeline.main:main"
