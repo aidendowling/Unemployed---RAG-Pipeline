@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .ingestion import ingest_directory
 from .indexing import build_indexes
+from . import config
 
 
 def main() -> None:
@@ -24,13 +25,13 @@ def main() -> None:
     ingest_parser.add_argument(
         "--raw-dir",
         type=Path,
-        default=Path("data/raw"),
+        default=config.RAW_DATA_DIR,
         help="Directory containing CSV, TSV, TXT, or Parquet source files.",
     )
     ingest_parser.add_argument(
         "--db-path",
         type=Path,
-        default=Path("data/processed/unemployed_rag.duckdb"),
+        default=config.DEFAULT_DB_PATH,
         help="Path to the DuckDB database file to create or update.",
     )
     ingest_parser.add_argument(
@@ -46,23 +47,23 @@ def main() -> None:
     index_parser.add_argument(
         "--db-path",
         type=Path,
-        default=Path("data/processed/unemployed_rag.duckdb"),
+        default=config.DEFAULT_DB_PATH,
         help="Path to the DuckDB database file created by ingestion.",
     )
     index_parser.add_argument(
         "--index-dir",
         type=Path,
-        default=Path("data/indexes"),
+        default=config.INDEXES_DIR,
         help="Directory where retrieval artifacts will be written.",
     )
     index_parser.add_argument(
         "--collection-name",
-        default="labor_market",
+        default=config.DEFAULT_COLLECTION_NAME,
         help="Chroma collection name to use for vector storage.",
     )
     index_parser.add_argument(
         "--model-name",
-        default="sentence-transformers/all-MiniLM-L6-v2",
+        default=config.DEFAULT_EMBEDDING_MODEL,
         help="SentenceTransformer model used to create embeddings.",
     )
     index_parser.add_argument(
