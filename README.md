@@ -1,152 +1,116 @@
-# Unemployed---RAG-Pipeline
+# Unemployed RAG Pipeline
 
-Unemployed is a reproducible, terminal-based analytics platform for querying decades of U.S. labor market data with natural language.
+A terminal-first RAG pipeline for exploring U.S. labor market data. The project ingests raw files into DuckDB, builds keyword and semantic retrieval indexes, and exposes a query-time QA flow with obsolescence filtering.
 
-CS 4365/6365: Introduction to Enterprise Computing — Summer 2026, Georgia Institute of Technology
+CS 4365/6365: Introduction to Enterprise Computing — Summer 2026
 
 Author: Aiden Dowling
 
-## Current project state
+## What the project does
 
-The project now has three working pieces:
+1. Ingests raw `.csv`, `.tsv`, `.txt`, and `.parquet` files into DuckDB.
+2. Builds retrieval indexes from the DuckDB tables:
+   - BM25 keyword index
+   - Chroma semantic index
+3. Runs a RAG QA loop that combines semantic and keyword retrieval.
+4. Filters stale documents with the obsolescence layer.
 
-1. Data ingestion into DuckDB
-2. Retrieval/indexing with Chroma and BM25
-3. A CLI entry point that exposes both steps
+## Project layout
 
-## Project structure
+- `src/unemployed_rag_pipeline/config.py` — shared path and model configuration
+- `src/unemployed_rag_pipeline/ingestion/pipeline.py` — raw file ingestion into DuckDB
+- `src/unemployed_rag_pipeline/indexing.py` — builds BM25 and Chroma indexes
+- `src/unemployed_rag_pipeline/retrieval/keyword.py` — BM25 retrieval
+- `src/unemployed_rag_pipeline/retrieval/semantic.py` — Chroma semantic retrieval
+- `src/unemployed_rag_pipeline/rag.py` — RAG orchestration
+- `src/unemployed_rag_pipeline/obsolescence/freshness.py` — freshness and obsolescence helpers
+- `src/unemployed_rag_pipeline/main.py` — CLI entry point
 
+## Setup
+
+Create a virtual environment and install dependencies:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
 ```
-.
-├── .env.example
-├── pyproject.toml
-└── src/
-    └── unemployed_rag_pipeline/
-        ├── __init__.py
-        ├── ingestion.py
-        ├── indexing.py
-        └── main.py
-```
 
-## Environment setup
-
-Copy the example environment file before running anything:
+If you want to use a custom environment file, copy the example first:
 
 ```bash
 cp .env.example .env
 ```
 
-Fill in your local API key and adjust paths if needed.
+## Data directories
 
-## Dependencies
-
-The project uses:
-
-- Python 3.10+
-- Pandas
-- DuckDB
-- PyArrow
-- ChromaDB
-- sentence-transformers
-- rank-bm25
+- Raw input: `data/raw/`
+- DuckDB output: `data/processed/unemployed_rag.duckdb`
+- Retrieval indexes: `data/indexes/`
 
 ## CLI commands
 
-Run the app help:
+Show available commands:
 
 ```bash
-PYTHONPATH=src python -m unemployed_rag_pipeline.main
+PYTHONPATH=src python -m unemployed_rag_pipeline.main --help
 ```
 
-### Ingest raw files
+### Ingest data
 
-Supported formats:
-
-- .csv
-- .tsv
-- .txt
-- .parquet
-
-Default input and output paths:
-
-- Raw inputs: data/raw
-- DuckDB database: data/processed/unemployed_rag.duckdb
-
-Command:
+Load supported raw files into DuckDB:
 
 ```bash
 PYTHONPATH=src python -m unemployed_rag_pipeline.main ingest
 ```
 
-Force a rebuild:
+Rebuild the database from scratch:
 
 ```bash
 PYTHONPATH=src python -m unemployed_rag_pipeline.main ingest --clear
 ```
 
-### Build retrieval indexes
+### Build indexes
 
-The index step reads the DuckDB tables and creates:
-
-- A Chroma vector collection for semantic search
-- A BM25 corpus for lexical search
-
-Default locations:
-
-- DuckDB input: data/processed/unemployed_rag.duckdb
-- Index output: data/indexes
-
-Command:
+Create the BM25 corpus and Chroma semantic index from the DuckDB tables:
 
 ```bash
 PYTHONPATH=src python -m unemployed_rag_pipeline.main index
 ```
 
-Rebuild from scratch:
+Rebuild indexes from scratch:
 
 ```bash
 PYTHONPATH=src python -m unemployed_rag_pipeline.main index --clear
 ```
 
-## Notes
+### Run QA
 
-This is still the wiring stage of the pipeline. The next major step is query-time retrieval and answer generation.
- 
-## RAG QA and obsolescence
-
-This repository now includes a lightweight RAG orchestrator and an obsolescence
-filtering utility.
-
-- Orchestrator: `src/unemployed_rag_pipeline/rag.py` provides `RAGPipeline`
-    and `RAGOrchestrator` to run retrieval (semantic + BM25) and produce answers.
-- Obsolescence: `src/unemployed_rag_pipeline/obsolescence/freshness.py` exposes
-    `FreshnessChecker` and `is_obsolete` to filter stale documents at query time.
-
-You can run QA against built indexes using the `qa` subcommand. Example:
+Run a single query:
 
 ```bash
 PYTHONPATH=src python -m unemployed_rag_pipeline.main qa --query "What is the unemployment rate?" --index-dir data/indexes
 ```
 
-Or start an interactive QA loop:
+Start interactive QA mode:
 
 ```bash
 PYTHONPATH=src python -m unemployed_rag_pipeline.main qa --index-dir data/indexes
 ```
 
-The `qa` command instantiates the semantic retriever (Chroma) and the BM25
-retriever and runs `RAGOrchestrator` with a default obsolescence filter that
-uses `is_obsolete(metadata)` to drop old/deprecated documents.
+The QA command uses both retrievers and applies the obsolescence filter to drop stale or deprecated results.
 
 ## Tests
 
-Run unit tests with `pytest` (recommended inside a virtualenv):
+Run the test suite with:
 
 ```bash
-python -m pip install -r requirements.txt
 python -m pytest -q
 ```
 
-If you want, I can add a small automated system test that runs `ingest -> index -> qa` on sample data.
+## Notes
 
+- The semantic retriever expects a built Chroma index in `data/indexes/chroma/`.
+- The BM25 retriever expects `data/indexes/bm25_corpus.json`.
+- If you update the source data, rerun `ingest` and `index` before using `qa`.
 
