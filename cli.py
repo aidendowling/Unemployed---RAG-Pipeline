@@ -254,9 +254,15 @@ def action_ask() -> None:
         return
 
     show_ctx = confirm("Show retrieved context passages?", default=False)
+    save = confirm("Save response to a file?", default=False)
+
     args = ["qa", "--query", query]
     if show_ctx:
         args.append("--show-context")
+    if save:
+        output_path = prompt("Output file path", "data/outputs/answer.json")
+        args += ["--output", output_path]
+
     run_pipeline(*args)
 
 

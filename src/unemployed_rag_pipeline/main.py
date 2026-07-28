@@ -183,6 +183,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--show-context", action="store_true", help="Print the retrieved context passages."
     )
     qa_parser.add_argument("--json", action="store_true", help="Emit the raw response as JSON.")
+    qa_parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Write the response as JSON to this file (e.g. data/outputs/answer.json).",
+    )
 
     eval_parser = subparsers.add_parser(
         "eval", help="Score the query engine with RAGAS (or offline heuristics)."
@@ -372,6 +378,7 @@ REPL_HELP = """Commands:
   :sources           Re-print sources for the last query
   :context           Print retrieved context for the last query
   :warnings          Re-print warnings for the last query
+  :save <file>       Save the last response as JSON (e.g. :save output.json)
   :set k <n>         Change how many documents are retrieved
   :exit              Leave the REPL (also: exit, quit, Ctrl-D)
 Anything else is treated as a question."""
@@ -419,11 +426,29 @@ def _run_repl(orchestrator: RAGOrchestrator, args: argparse.Namespace) -> None:
                 else:
                     for warning in last.get("warnings", []) or ["(none)"]:
                         print(f"! {warning}")
+            elif command == ":save":
+                if last is None:
+                    print("No query has been run yet.")
+                elif len(parts) < 2:
+                    print("Usage: :save <filename.json>")
+                else:
+                    save_path = Path(parts[1]).expanduser()
+                    save_path.parent.mkdir(parents=True, exist_ok=True)
+                    output_data = {
+                        "query": last.get("_query", ""),
+                        "answer": last["answer"],
+                        "provenance": last.get("provenance", []),
+                        "warnings": last.get("warnings", []),
+                        "contexts": last.get("contexts", []),
+                    }
+                    save_path.write_text(json.dumps(output_data, indent=2), encoding="utf-8")
+                    print(f"Saved to {save_path}")
             else:
                 print(f"Unknown command {command!r}. Type ':help'.")
             continue
 
         response = orchestrator.answer(entry, k=state["k"])
+        response["_query"] = entry
         state["last"] = response
         _print_response(response, show_context=args.show_context)
 
@@ -573,8 +598,21 @@ def _command_qa(args: argparse.Namespace) -> None:
 
     if args.query:
         response = orchestrator.answer(args.query, k=args.k)
-        if args.json:
-            print(json.dumps({key: response[key] for key in ("answer", "provenance", "warnings")}, indent=2))
+        if args.json or args.output:
+            output_data = {
+                "query": args.query,
+                "answer": response["answer"],
+                "provenance": response["provenance"],
+                "warnings": response["warnings"],
+                "contexts": response.get("contexts", []),
+            }
+            json_str = json.dumps(output_data, indent=2)
+            if args.json:
+                print(json_str)
+            if args.output:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(json_str, encoding="utf-8")
+                print(f"Response written to {args.output}")
         else:
             _print_response(response, show_context=args.show_context)
         return
