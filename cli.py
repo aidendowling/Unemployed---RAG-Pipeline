@@ -275,6 +275,43 @@ def action_chat() -> None:
     run_pipeline("qa", "--show-context")
 
 
+def action_batch_qa() -> None:
+    """Run a batch of pre-created questions and save all answers."""
+    section("Batch QA (Run Questions File)")
+
+    # Find question files
+    eval_dir = Path("data/eval")
+    json_files = sorted(eval_dir.glob("*.json")) if eval_dir.exists() else []
+
+    if json_files:
+        print("  Available question files:")
+        for i, f in enumerate(json_files, 1):
+            print(f"    {i}. {f}")
+        print()
+        choice = prompt(f"Select file (1-{len(json_files)}) or type a path", "1")
+        try:
+            idx = int(choice) - 1
+            questions_path = str(json_files[idx])
+        except (ValueError, IndexError):
+            questions_path = choice
+    else:
+        questions_path = prompt("Path to questions JSON file")
+        if not questions_path:
+            return
+
+    output_path = prompt("Output file path", "data/outputs/batch_answers.json")
+
+    print()
+    print(f"  Will run all questions from: {questions_path}")
+    print(f"  Answers will be saved to:    {output_path}")
+    print()
+
+    if not confirm("Run batch?"):
+        return
+
+    run_pipeline("qa", "--questions", questions_path, "--output", output_path)
+
+
 def action_eval() -> None:
     """Run evaluation."""
     section("Evaluate Pipeline")
@@ -359,7 +396,8 @@ MENU = [
     ("6", "Build indexes", action_index),
     ("7", "Ask a question", action_ask),
     ("8", "Interactive QA (chat mode)", action_chat),
-    ("9", "Evaluate pipeline", action_eval),
+    ("9", "Batch QA (run questions file → JSON output)", action_batch_qa),
+    ("10", "Evaluate pipeline", action_eval),
     ("0", "System status", action_status),
     ("q", "Quit", None),
 ]
