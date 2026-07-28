@@ -3,12 +3,28 @@
 from __future__ import annotations
 
 import json
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
+
+
+def _make_ssl_context() -> ssl.SSLContext:
+    """Create an SSL context that works on macOS with Python installed via pyenv/Homebrew.
+
+    Falls back to certifi's certificate bundle when the default system
+    certificates are unavailable (common on macOS).
+    """
+    context = ssl.create_default_context()
+    try:
+        import certifi
+        context.load_verify_locations(certifi.where())
+    except ImportError:
+        pass  # Use system defaults; will fail on unconfigured macOS installs
+    return context
 
 
 class APIError(RuntimeError):
@@ -38,7 +54,7 @@ def get_json(
     full_url = f"{url}?{urllib.parse.urlencode(query)}" if query else url
 
     try:
-        with urllib.request.urlopen(full_url, timeout=timeout) as response:
+        with urllib.request.urlopen(full_url, timeout=timeout, context=_make_ssl_context()) as response:
             payload = response.read().decode("utf-8")
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", errors="replace")[:500]
