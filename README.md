@@ -8,18 +8,36 @@ Author: Aiden Dowling
 
 ## What the project does
 
-1. Ingests raw `.csv`, `.tsv`, `.txt`, and `.parquet` files into DuckDB.
-   - Automatically detects and normalizes vintage/year columns
-   - Adds `vintage_year` field to every ingested row for temporal tracking
+1. Ingests labor-market data into DuckDB from three kinds of source:
+   - **FRED API** (`fred` command) — any FRED series, e.g. `UNRATE`, `CAUR`
+   - **Census QWI API** (`qwi` command) — Quarterly Workforce Indicators by state/county
+   - **CPS microdata** (`cps` command) — fixed-width `.dat` extracts, parsed with a layout
+     and aggregated into monthly state-level employment/unemployment summaries
+   - Plus generic `.csv`, `.tsv`, `.txt`, `.parquet`, and `.dat` files dropped in `data/raw/`
+   - Every ingested row gets a normalized `vintage_year` plus `source`/`source_file` provenance
 2. Builds retrieval indexes from the DuckDB tables:
    - BM25 keyword index with tokenized corpus
    - Chroma semantic index with sentence embeddings
 3. Implements a **query-intent-aware knowledge-obsolescence layer** (the novel differentiator):
-   - Extracts implied time ranges from user queries (e.g., "in 2020" → [2020, 2025])
+   - Extracts implied time ranges from user queries (e.g., "in 2020" → [2015, 2025])
    - Scores documents based on alignment between vintage_year and query-implied time range
    - Perfect-match documents score 1.0; out-of-range documents receive exponential decay
-   - Enables temporal relevance without hard filtering
-4. Runs a RAG QA loop that combines semantic and keyword retrieval with obsolescence filtering.
+   - Reranks on `retrieval_score x vintage_score` and warns about stale or vintage-less hits
+4. Runs a RAG QA loop that **fuses** semantic and keyword retrieval (reciprocal rank fusion or
+   weighted score fusion), generates answers through OpenRouter, and prints per-source provenance.
+5. Scores the whole query engine with `eval` — RAGAS when installed, deterministic offline
+   heuristics otherwise.
+
+### End-to-end in four commands
+
+```bash
+PYTHONPATH=src python -m unemployed_rag_pipeline.main ingest --clear
+PYTHONPATH=src python -m unemployed_rag_pipeline.main index --clear
+PYTHONPATH=src python -m unemployed_rag_pipeline.main qa --query "unemployment in California in 2020"
+PYTHONPATH=src python -m unemployed_rag_pipeline.main eval
+```
+
+Run `status` at any point to see which tables, indexes, and credentials are in place.
 
 ## The Knowledge-Obsolescence Layer
 
@@ -35,18 +53,28 @@ The obsolescence system is **query-intent-relative**, not generic recency decay:
   - Documents within range → score 1.0
   - Documents outside → exponential decay by distance
 
-See [Query Evaluation Results](data/outputs/QUERY_EVALUATION_RESULTS.txt) for measured scores on live data.
+Scoring is applied in the QA path itself: results are reranked by `retrieval_score x vintage_score`,
+documents below `--min-vintage-score` are dropped, and anything below `VINTAGE_WARN_SCORE` (or
+missing a vintage entirely) raises a warning printed under the answer. Pass `--no-obsolescence`
+to rank on retrieval score alone.
 
 ## Project layout
 
-- `src/unemployed_rag_pipeline/config.py` — shared path and model configuration
+- `src/unemployed_rag_pipeline/config.py` — shared path, model, and threshold configuration
 - `src/unemployed_rag_pipeline/ingestion/pipeline.py` — raw file ingestion into DuckDB
+- `src/unemployed_rag_pipeline/ingestion/fred.py` — FRED API client
+- `src/unemployed_rag_pipeline/ingestion/qwi.py` — Census QWI API client
+- `src/unemployed_rag_pipeline/ingestion/cps.py` — CPS fixed-width `.dat` parser and aggregator
+- `src/unemployed_rag_pipeline/ingestion/layouts/` — bundled CPS Basic Monthly layout
 - `src/unemployed_rag_pipeline/indexing.py` — builds BM25 and Chroma indexes
 - `src/unemployed_rag_pipeline/retrieval/keyword.py` — BM25 retrieval
 - `src/unemployed_rag_pipeline/retrieval/semantic.py` — Chroma semantic retrieval
-- `src/unemployed_rag_pipeline/rag.py` — RAG orchestration
+- `src/unemployed_rag_pipeline/retrieval/hybrid.py` — RRF / weighted fusion of both retrievers
+- `src/unemployed_rag_pipeline/rag.py` — RAG orchestration, vintage reranking, provenance
 - `src/unemployed_rag_pipeline/obsolescence/freshness.py` — freshness and obsolescence helpers
+- `src/unemployed_rag_pipeline/evaluation/ragas_eval.py` — RAGAS + offline heuristic evaluation
 - `src/unemployed_rag_pipeline/main.py` — CLI entry point
+- `scripts/mock_api_server.py` — canned FRED/QWI responses for offline runs
 
 ## Key Features
 
@@ -60,14 +88,26 @@ Unlike generic recency decay, the obsolescence layer extracts time ranges from q
 - Out-of-range documents receive exponential decay: `0.5^(distance_years/10)`
 - Queries with no time context return all documents with full relevance
 
-### 3. Dual Retrieval with Orchestration
-Combines lexical and semantic search:
+### 3. Hybrid Retrieval with Orchestration
+Combines lexical and semantic search into a single ranking:
 - **BM25**: Fast keyword matching with term-frequency scoring
-- **Semantic (Chroma)**: Vector similarity using sentence embeddings
-- **Orchestrator**: Deduplicates by document ID, applies vintage scores, sorts by combined relevance
+- **Semantic (Chroma)**: Vector similarity using sentence embeddings, queried with the same
+  SentenceTransformer used at index time
+- **Fusion**: reciprocal rank fusion (default) or weighted min-max score fusion,
+  configurable per run with `--fusion`, `--semantic-weight`, `--rrf-k`
+- **Orchestrator**: Deduplicates by document ID, applies vintage scores, sorts by combined
+  relevance, and reports which retriever(s) matched each document
+- **Degradation**: if one retriever is missing or throws, the other still answers and the
+  failure is surfaced as a warning rather than crashing the query
 
 ### 4. LLM-Based Answer Generation
-The pipeline can use OpenRouter to call remote LLMs for answer synthesis. Falls back gracefully to a stub generator if no API key is configured.
+The pipeline can use OpenRouter to call remote LLMs for answer synthesis. Falls back gracefully to a stub generator if no API key is configured or if the API call fails.
+
+### 5. Evaluation
+`eval` runs a question set through the full query engine and reports faithfulness,
+answer relevancy, context precision, and context recall. With `ragas` installed
+(`pip install '.[eval]'`) the metrics are LLM-judged RAGAS scores; without it the pipeline
+falls back to deterministic lexical-overlap heuristics so evaluation still runs offline.
 
 ## Setup
 
@@ -120,13 +160,36 @@ If you want to download data directly from FRED:
 
 3. Verify the key is set before downloading a series:
    ```bash
-   python -c "from src.unemployed_rag_pipeline import config; print(bool(config.FRED_API_KEY))"
+   PYTHONPATH=src python -m unemployed_rag_pipeline.main status
    ```
+
+### Configure Census QWI API Access
+
+The Census API tolerates a small number of keyless requests but will throttle you quickly.
+Request a free key at https://api.census.gov/data/key_signup.html and add it to `.env`:
+
+```bash
+echo "CENSUS_API_KEY=your_census_key_here" >> .env
+```
+
+### Running without any API keys
+
+`scripts/mock_api_server.py` serves canned FRED and QWI payloads so the API paths can be
+exercised offline:
+
+```bash
+python scripts/mock_api_server.py 8765 &
+FRED_BASE_URL=http://127.0.0.1:8765/fred QWI_BASE_URL=http://127.0.0.1:8765/qwi \
+  PYTHONPATH=src python -m unemployed_rag_pipeline.main fred --series-id UNRATE --api-key mock --ingest
+```
 
 ## Data directories
 
 ### Directory Structure
-- **Raw input**: `data/raw/` — Place raw CSV/TSV/Parquet files here before ingestion
+- **Raw input**: `data/raw/` — Place raw CSV/TSV/Parquet/CPS `.dat` files here before ingestion
+  (git-ignored; downloads from `fred`/`qwi` land here too)
+- **Samples**: `data/sample/` — Committed synthetic fixtures for a zero-credential demo
+- **Eval**: `data/eval/questions.json` — Question set used by the `eval` command
 - **Processed**: `data/processed/unemployed_rag.duckdb` — DuckDB database created after ingestion
 - **Indexes**: `data/indexes/` — BM25 corpus and Chroma vector index created after indexing
 - **Outputs**: `data/outputs/` — Query evaluation results and test outputs
@@ -136,8 +199,6 @@ If you want to download data directly from FRED:
 The pipeline is designed for U.S. labor market datasets. Here are **detailed step-by-step instructions** to download real data:
 
 #### Option A: **BLS Local Area Unemployment Statistics (LAUS)** — Recommended for state-level data
-
-This is the exact source used for the sample data in this repo.
 
 **Steps:**
 
@@ -188,36 +249,69 @@ DATE,UNRATE
 2020-04-01,16.4
 ```
 
-You'll need to add a `year` column. This can be done with a simple Python script:
+A manual download needs a `year` column added before ingestion. The `fred` command does this for
+you — it writes `date`, `year`, `month`, `value`, `series_id`, `vintage_year`, `source`, and
+`retrieved_at` — so prefer:
 
-```python
-import pandas as pd
-
-# Read FRED data
-df = pd.read_csv('data/raw/fred_unemployment_rate_ca.csv')
-# Convert DATE to year/month
-df['DATE'] = pd.to_datetime(df['DATE'])
-df['year'] = df['DATE'].dt.year
-df['month'] = df['DATE'].dt.month
-# Rename the value column to something descriptive
-df.rename(columns={'UNRATE': 'unemployment_rate'}, inplace=True)
-# Save back
-df.to_csv('data/raw/fred_unemployment_rate_ca_cleaned.csv', index=False)
+```bash
+PYTHONPATH=src python -m unemployed_rag_pipeline.main fred --series-id CAUR --start-date 2015-01-01 --ingest
 ```
 
-#### Option C: **Use the Sample Data** — Included for immediate testing
+#### Option C: **Census QWI** — Quarterly Workforce Indicators by state or county
 
-We've included a pre-formatted sample dataset:
-- **File**: `data/raw/unemployment_2015_2022.csv`
-- **Records**: 51 monthly snapshots across California, Texas, Florida
-- **Years covered**: 2015-2022
-- **Columns**: `year`, `month`, `state`, `unemployment_rate`, `total_labor_force`, `employed`, `unemployed`, `industry_focus`
-- **Ready to use**: No preprocessing needed; just ingest and query
+No manual download needed; the `qwi` command calls the API directly:
 
-Run the pipeline with the sample data:
 ```bash
-PYTHONPATH=src python -m unemployed_rag_pipeline.main ingest
-PYTHONPATH=src python -m unemployed_rag_pipeline.main index
+PYTHONPATH=src python -m unemployed_rag_pipeline.main qwi --state 13 --years 2019,2020,2021 --ingest
+PYTHONPATH=src python -m unemployed_rag_pipeline.main qwi --state 13 --county 121 --years 2020 --industry 23 --ingest
+```
+
+Default variables are `Emp`, `EmpEnd`, `HirA`, `Sep`, `EarnBeg`, `FrmJbGn`; override with
+`--variables`. `--dataset` chooses between `sa` (seasonally adjusted), `se` (sex/education),
+and `rh` (race/ethnicity). Variable definitions: https://lehd.ces.census.gov/data/schema/latest/lehd_public_use_schema.html
+
+#### Option D: **CPS microdata** — the `.dat` extracts
+
+The `cps` command parses a fixed-width CPS file and, by default, aggregates person records into
+monthly state-level employment, unemployment, and unemployment-rate rows (weighted by
+`PWCMPWGT`/`HWHHWGT` when present):
+
+```bash
+PYTHONPATH=src python -m unemployed_rag_pipeline.main cps --file data/raw/cps_2020.dat --ingest
+PYTHONPATH=src python -m unemployed_rag_pipeline.main cps --file data/raw/cps_2020.dat.gz --raw   # person-level
+```
+
+**Layouts matter.** A fixed-width file is unreadable without the column positions, so the parser
+resolves a layout in this order:
+
+1. `--layout` (or `CPS_LAYOUT_PATH` in `.env`) — an IPUMS `.xml` DDI, a JSON field list, a Census
+   data dictionary `.txt`/`.dct`, or the builtin name `cps-basic-monthly`
+2. a sidecar file with the same stem next to the `.dat` (e.g. `cps_2020.xml`)
+3. a single `.xml` in the same directory
+4. the bundled `cps-basic-monthly` layout, as a last resort
+
+The bundled layout covers the public Basic Monthly CPS record and is **only a fallback** — if your
+extract is an IPUMS custom extract or a different CPS supplement, pass its layout with `--layout`.
+The parser refuses to continue when the parsed survey years look implausible, so a mismatched
+layout fails loudly instead of producing garbage.
+
+#### Option E: **Use the Sample Data** — Included for immediate testing
+
+Two synthetic fixtures ship with the repo so the pipeline can be exercised without any downloads:
+
+- `data/sample/unemployment_2015_2022.csv` — 96 monthly snapshots across California, Texas, and
+  Florida (2015-2022) with columns `year`, `month`, `state`, `unemployment_rate`,
+  `total_labor_force`, `employed`, `unemployed`, `industry_focus`
+- `data/sample/cps_basic_monthly_sample.dat.gz` — 2,400 synthetic CPS person records in the bundled
+  Basic Monthly layout (the `cps` command reads `.dat` and `.dat.gz` alike)
+
+Both are **synthetic, not official BLS/Census data**; they exist to demonstrate the pipeline.
+
+```bash
+cp data/sample/unemployment_2015_2022.csv data/raw/
+PYTHONPATH=src python -m unemployed_rag_pipeline.main cps --file data/sample/cps_basic_monthly_sample.dat.gz
+PYTHONPATH=src python -m unemployed_rag_pipeline.main ingest --clear
+PYTHONPATH=src python -m unemployed_rag_pipeline.main index --clear
 PYTHONPATH=src python -m unemployed_rag_pipeline.main qa --query "unemployment in California 2020"
 ```
 
@@ -239,8 +333,9 @@ Once downloaded, your CSV should have these characteristics:
 
 3. **Supported file formats**:
    - `.csv` — Comma-separated (most common)
-   - `.tsv` — Tab-separated values
+   - `.tsv` / `.txt` — Tab-separated values
    - `.parquet` — Apache Parquet (faster for large datasets)
+   - `.dat` — CPS fixed-width microdata (parsed with a layout, then aggregated)
 
 ### Quick Example: Download and Ingest CA Unemployment
 
@@ -344,46 +439,83 @@ Rebuild indexes from scratch:
 PYTHONPATH=src python -m unemployed_rag_pipeline.main index --clear
 ```
 
+### Download Census QWI data
+
+```bash
+PYTHONPATH=src python -m unemployed_rag_pipeline.main qwi --state 13 --years 2019,2020 --ingest
+```
+
+### Parse CPS microdata
+
+```bash
+PYTHONPATH=src python -m unemployed_rag_pipeline.main cps --file data/raw/cps_2020.dat --layout data/raw/cps_2020.xml --ingest
+```
+
 ### Run QA
 
 Run a single query:
 
 ```bash
-PYTHONPATH=src python -m unemployed_rag_pipeline.main qa --query "What is the unemployment rate?" --index-dir data/indexes
+PYTHONPATH=src python -m unemployed_rag_pipeline.main qa --query "unemployment in California in 2020"
 ```
 
 Start interactive QA mode:
 
 ```bash
-PYTHONPATH=src python -m unemployed_rag_pipeline.main qa --index-dir data/indexes
+PYTHONPATH=src python -m unemployed_rag_pipeline.main qa
 ```
 
-The QA command uses both retrievers, applies the obsolescence filter based on vintage scores, and generates answers via the configured LLM (or stub if no API key).
+Inside the REPL: `:help`, `:sources`, `:context`, `:warnings`, `:set k <n>`, `:exit`.
 
-**Example with real labor market data**:
-```bash
-PYTHONPATH=src python -m unemployed_rag_pipeline.main ingest --clear
-PYTHONPATH=src python -m unemployed_rag_pipeline.main index --clear
-PYTHONPATH=src python -m unemployed_rag_pipeline.main qa --query "unemployment in California 2020"
-```
+Useful flags:
+
+| Flag | Meaning |
+| --- | --- |
+| `--k` | number of documents to retrieve (default 5) |
+| `--fusion rrf\|weighted` | how BM25 and semantic results are combined |
+| `--semantic-weight` | semantic share of the score under weighted fusion |
+| `--rrf-k` | reciprocal-rank-fusion constant |
+| `--min-vintage-score` | drop documents whose query-intent vintage score is below this |
+| `--no-obsolescence` | rank on retrieval score only |
+| `--show-context` | print the retrieved passages |
+| `--json` | emit answer, provenance, and warnings as JSON |
+
+Each answer is followed by a provenance block — document ID, table, dataset, source file, vintage
+year, which retrievers matched it, and the retrieval/vintage/combined scores — and a warnings
+block covering retriever failures, missing vintages, and temporally misaligned sources.
 
 If `OPENROUTER_API_KEY` is set, you'll see LLM-generated answers. Otherwise, you'll see formatted context with sources.
 
-## Tests
+### Evaluate the query engine
 
-Run the test suite with:
+```bash
+PYTHONPATH=src python -m unemployed_rag_pipeline.main eval
+PYTHONPATH=src python -m unemployed_rag_pipeline.main eval --query "unemployment in Texas in 2019" --no-ragas
+```
+
+Questions default to `data/eval/questions.json` (a list of strings, or objects with `question` and
+optional `ground_truth`). The report is written to `data/outputs/eval_results.json`. RAGAS is used
+when `pip install '.[eval]'` has been run and an LLM key is configured; otherwise the offline
+heuristic backend is used and says so in its notes.
+
+### Check status
+
+```bash
+PYTHONPATH=src python -m unemployed_rag_pipeline.main status
+```
+
+Prints DuckDB tables and row counts, index artifacts, which credentials are set, and whether
+RAGAS is installed.
+
+## Tests
 
 ```bash
 python -m pytest -q
+ruff check src tests scripts
 ```
 
-Run query-intent evaluation:
-
-```bash
-python test_query_intent.py
-```
-
-This generates `data/outputs/query_test_results.json` and prints human-readable evaluation.
+The suite covers CPS layout resolution and parsing, FRED/QWI API clients (against mocked
+responses — no network needed), hybrid fusion, obsolescence-aware orchestration, and evaluation.
 
 ## Architecture & Design
 
@@ -422,11 +554,16 @@ The `query_intent_vintage_score()` function implements temporal alignment:
 ## Implementation Details
 
 ### Configuration
-All settings load from `.env` with sensible defaults:
+All settings load from `.env` with sensible defaults (see [.env.example](.env.example)):
 - `OPENROUTER_API_KEY`: Required for LLM generation (optional)
 - `OPENROUTER_MODEL`: Defaults to free Llama 3.1 8B
-- `RAW_DATA_DIR`, `INDEX_DIR`, `DUCKDB_PATH`: Configurable data directories
+- `FRED_API_KEY` / `FRED_BASE_URL`: FRED downloads
+- `CENSUS_API_KEY` / `QWI_BASE_URL`: Census QWI downloads
+- `CPS_LAYOUT_PATH`: Default layout for CPS `.dat` extracts
+- `RAW_DATA_DIR`, `INDEX_DIR`, `DUCKDB_PATH`, `EVAL_DIR`: Configurable data directories
 - `EMBEDDING_MODEL`: Defaults to all-MiniLM-L6-v2 (lightweight, 384-dim)
+- `HYBRID_FUSION_METHOD`, `HYBRID_RRF_K`, `HYBRID_SEMANTIC_WEIGHT`: Fusion defaults
+- `MIN_VINTAGE_SCORE`, `VINTAGE_WARN_SCORE`: Obsolescence drop and warn thresholds
 - **Key Code**: [config.py](src/unemployed_rag_pipeline/config.py)
 
 ### Data Requirements
@@ -436,18 +573,15 @@ All settings load from `.env` with sensible defaults:
 - **Text content**: Data should have text fields; all non-null columns concatenated for retrieval
 
 ### Testing & Evaluation
-- **Unit tests**: [tests/test_freshness.py](tests/test_freshness.py), [tests/test_rag.py](tests/test_rag.py)
-  - Test query-intent extraction (5 patterns)
-  - Test vintage scoring logic and edge cases
-  - Test orchestration (dedup, filtering, sorting)
-- **Live evaluation**: [test_query_intent.py](test_query_intent.py)
-  - Runs against indexed labor market data
-  - Reports vintage scores for each retrieval result
-  - Outputs JSON and human-readable results to `data/outputs/`
-- **Sample data**: [data/raw/unemployment_2015_2022.csv](data/raw/unemployment_2015_2022.csv)
-  - 51 rows of U.S. labor data (California, Texas, Florida; 2015-2022)
-  - Demonstrates full pipeline end-to-end
-  - See [Query Evaluation Results](data/outputs/QUERY_EVALUATION_RESULTS.txt) for live measurements
+- **Unit tests**: `tests/` — freshness and query-intent scoring, obsolescence-aware orchestration
+  ([tests/test_query_engine.py](tests/test_query_engine.py)), hybrid fusion
+  ([tests/test_hybrid.py](tests/test_hybrid.py)), CPS layout handling
+  ([tests/test_cps.py](tests/test_cps.py)), FRED/QWI clients against mocked payloads
+  ([tests/test_api_ingestion.py](tests/test_api_ingestion.py)), and evaluation
+  ([tests/test_evaluation.py](tests/test_evaluation.py))
+- **Pipeline evaluation**: the `eval` command, writing `data/outputs/eval_results.json`
+- **Sample data**: [data/sample/](data/sample) — synthetic CSV and CPS `.dat` fixtures that
+  demonstrate the full pipeline end-to-end without any credentials
 
 ## Troubleshooting & Notes
 
@@ -455,5 +589,8 @@ All settings load from `.env` with sensible defaults:
 - **Slow semantic indexing**: First run downloads sentence-transformer model (~130MB). Subsequent runs are cached locally.
 - **LLM failures**: If OpenRouter times out or returns an error, the pipeline gracefully falls back to DefaultGenerator (formatted context only).
 - **FRED API errors**: Confirm `FRED_API_KEY` is set in `.env`, and verify the series ID exists on FRED if the download returns no data.
+- **QWI returns nothing**: QWI lags by several quarters, so very recent years may be empty; also confirm the state/county FIPS codes and that the requested variables exist in the chosen dataset.
+- **CPS parses but the numbers look wrong**: you are almost certainly using the wrong layout. Pass the codebook that came with your extract via `--layout`; the bundled Basic Monthly layout is only a fallback.
+- **`eval` says "heuristic" backend**: RAGAS is not installed (`pip install '.[eval]'`) or no LLM key is configured. Heuristic metrics are lexical-overlap approximations, useful for regression tracking but not comparable to RAGAS scores. The stub `DefaultGenerator` echoes the query, which inflates answer relevancy — set `OPENROUTER_API_KEY` for meaningful numbers.
 - **Reindexing required**: If you update source data files or change the embedding model, rerun `ingest` and `index` before querying.
 - **Local-only**: The entire pipeline (DuckDB, BM25, Chroma embeddings) runs locally. Only LLM generation hits external APIs if enabled.

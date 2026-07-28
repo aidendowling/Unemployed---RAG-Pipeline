@@ -40,8 +40,10 @@ htmlcov/
 dmypy.json
 
 # Data files (keep structure)
+data/raw/*
 data/processed/*.duckdb
 data/indexes/
+data/outputs/
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/sample/.gitkeep

@@ -1,0 +1,30 @@
+{
+  "name": "cps_basic_monthly",
+  "description": "Subset of the Census/BLS CPS Basic Monthly public-use file layout (2003+ record format). Positions are 1-based and inclusive, taken from the CPS basic monthly data dictionary. Verify against the dictionary shipped with your own extract and override with --layout if it differs.",
+  "reference": "https://www.census.gov/data/datasets/time-series/demo/cps/cps-basic.html",
+  "fields": [
+    {"name": "HRHHID", "start": 1, "end": 15, "dtype": "string", "description": "Household identifier"},
+    {"name": "HRMONTH", "start": 16, "end": 17, "dtype": "int", "description": "Month of interview"},
+    {"name": "HRYEAR4", "start": 18, "end": 21, "dtype": "int", "description": "Year of interview (4 digit)"},
+    {"name": "HURESPLI", "start": 22, "end": 23, "dtype": "int", "description": "Line number of household respondent"},
+    {"name": "HUFINAL", "start": 24, "end": 26, "dtype": "int", "description": "Final outcome code"},
+    {"name": "HETENURE", "start": 29, "end": 30, "dtype": "int", "description": "Housing tenure"},
+    {"name": "HEHOUSUT", "start": 31, "end": 32, "dtype": "int", "description": "Type of housing unit"},
+    {"name": "HEFAMINC", "start": 39, "end": 40, "dtype": "int", "description": "Family income range"},
+    {"name": "HWHHWGT", "start": 47, "end": 56, "dtype": "weight", "description": "Household weight (4 implied decimals)"},
+    {"name": "HRNUMHOU", "start": 59, "end": 60, "dtype": "int", "description": "Total persons in household"},
+    {"name": "HRHTYPE", "start": 61, "end": 62, "dtype": "int", "description": "Household type"},
+    {"name": "HRMIS", "start": 63, "end": 64, "dtype": "int", "description": "Month in sample"},
+    {"name": "GEREG", "start": 89, "end": 90, "dtype": "int", "description": "Census region"},
+    {"name": "GESTFIPS", "start": 93, "end": 94, "dtype": "int", "description": "State FIPS code"},
+    {"name": "GTCBSA", "start": 96, "end": 100, "dtype": "int", "description": "Core based statistical area code"},
+    {"name": "PRTAGE", "start": 122, "end": 123, "dtype": "int", "description": "Person age (topcoded)"},
+    {"name": "PEMARITL", "start": 124, "end": 125, "dtype": "int", "description": "Marital status"},
+    {"name": "PESEX", "start": 129, "end": 130, "dtype": "int", "description": "Sex"},
+    {"name": "PEEDUCA", "start": 137, "end": 138, "dtype": "int", "description": "Highest level of school completed"},
+    {"name": "PTDTRACE", "start": 139, "end": 140, "dtype": "int", "description": "Race"},
+    {"name": "PEMLR", "start": 180, "end": 181, "dtype": "int", "description": "Monthly labor force recode"},
+    {"name": "PEHRUSL1", "start": 218, "end": 220, "dtype": "int", "description": "Usual hours worked at main job"},
+    {"name": "PWCMPWGT", "start": 846, "end": 855, "dtype": "weight", "description": "Composited final weight (4 implied decimals)"}
+  ]
+}

@@ -8,6 +8,11 @@ rank-bm25>=0.2.2
 openai>=1.0.0
 python-dotenv>=1.0.0
 
+# Optional evaluation dependencies (RAGAS); the eval command falls back to
+# offline heuristic metrics when these are absent.
+# ragas>=0.2.0
+# datasets>=2.19.0
+
 # Development dependencies
 pytest>=7.0.0
 pytest-cov>=4.0.0

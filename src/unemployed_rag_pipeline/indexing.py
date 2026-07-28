@@ -129,6 +129,14 @@ def dataframe_to_rows(table_name: str, frame: pd.DataFrame) -> list[IndexedRow]:
                     metadata["vintage_year"] = int(vintage_year)
                 except (ValueError, TypeError):
                     pass
+
+        # Carry provenance columns into retrieval metadata
+        for column in ("source_file", "source"):
+            if column in frame.columns:
+                value = row.get(column)
+                if pd.notna(value):
+                    metadata[column] = str(value)
+
         
         records.append(
             IndexedRow(

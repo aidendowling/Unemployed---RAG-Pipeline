@@ -7,7 +7,9 @@ from typing import TYPE_CHECKING
 from sentence_transformers import SentenceTransformer
 
 if TYPE_CHECKING:
-    from sentence_transformers.SentenceTransformer import SentenceTransformer as SentenceTransformerType
+    from sentence_transformers.SentenceTransformer import (
+        SentenceTransformer as SentenceTransformerType,
+    )
 
 
 class TextEmbedder:

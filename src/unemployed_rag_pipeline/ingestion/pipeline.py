@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
-import re
-from typing import Iterable
 
 import duckdb
 import pandas as pd
 
 from ..config import SUPPORTED_EXTENSIONS
+from .cps import read_cps_dat, summarize_cps
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +82,8 @@ def read_source_file(file_path: Path) -> pd.DataFrame:
         return pd.read_csv(file_path, sep="\t")
     if suffix == ".parquet":
         return pd.read_parquet(file_path)
+    if suffix == ".dat":
+        return summarize_cps(read_cps_dat(file_path))
 
     raise ValueError(f"Unsupported file type: {file_path.suffix}")
 
@@ -98,7 +100,7 @@ def _extract_vintage_year(row: pd.Series) -> int | None:
         Extracted year as int, or None if not found
     """
     year_candidates = [
-        "year", "vintage", "survey_year", "reference_year",
+        "vintage_year", "year", "vintage", "survey_year", "reference_year",
         "data_year", "year_col", "years"
     ]
     
@@ -131,10 +133,14 @@ def ingest_file(connection: duckdb.DuckDBPyConnection, file_path: Path) -> Inges
     """
     table_name = infer_table_name(file_path)
     frame = read_source_file(file_path)
-    
+
     # Extract and normalize vintage years
     frame["vintage_year"] = frame.apply(_extract_vintage_year, axis=1)
-    
+
+    # Provenance: remember which file each row came from
+    if "source_file" not in frame.columns:
+        frame["source_file"] = file_path.name
+
     connection.register("source_frame", frame)
     connection.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM source_frame")
     connection.unregister("source_frame")
