@@ -25,7 +25,10 @@ from pathlib import Path
 import pandas as pd
 
 BUILTIN_LAYOUT_DIR = Path(__file__).parent / "layouts"
-BUILTIN_LAYOUTS = {"cps-basic-monthly": BUILTIN_LAYOUT_DIR / "cps_basic_monthly.json"}
+BUILTIN_LAYOUTS = {
+    "cps-basic-monthly": BUILTIN_LAYOUT_DIR / "cps_basic_monthly.json",
+    "cps-ipums-asec": BUILTIN_LAYOUT_DIR / "cps_00001_ipums.json",
+}
 SIDECAR_SUFFIXES = (".xml", ".json", ".dct", ".txt")
 
 WEIGHT_IMPLIED_DECIMALS = 4
