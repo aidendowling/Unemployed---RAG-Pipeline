@@ -1,4 +1,7 @@
-from unemployed_rag_pipeline.rag import RAGPipeline
+from datetime import datetime, timedelta, timezone
+
+from unemployed_rag_pipeline.obsolescence import freshness
+from unemployed_rag_pipeline.rag import RAGOrchestrator, RAGPipeline
 
 
 class DummyEmbedder:
@@ -27,10 +30,6 @@ def test_rag_basic():
     out = pipeline.answer("What is X?", top_k=2)
     assert out["answer"] == "This is a generated answer."
     assert "a" in out["sources"]
-from datetime import datetime, timedelta, timezone
-
-from unemployed_rag_pipeline.rag import RAGOrchestrator
-from unemployed_rag_pipeline.obsolescence import freshness
 
 
 class FakeRetriever:

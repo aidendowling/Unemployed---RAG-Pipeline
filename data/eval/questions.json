@@ -1,0 +1,24 @@
+{
+  "questions": [
+    {
+      "question": "What was the unemployment rate in California in 2020?",
+      "ground_truth": "California unemployment rose sharply in 2020, peaking around 10 percent."
+    },
+    {
+      "question": "How did unemployment in Texas change from 2015 to 2019?",
+      "ground_truth": "Texas unemployment declined steadily from about 4.5 percent in 2015 to about 3.5 percent in 2019."
+    },
+    {
+      "question": "Which state had the lowest unemployment rate in 2022?",
+      "ground_truth": "Florida had the lowest unemployment rate in 2022, near 2.9 percent."
+    },
+    {
+      "question": "What is the size of the Florida labor force?",
+      "ground_truth": "The Florida labor force is roughly 10 million people."
+    },
+    {
+      "question": "Compare unemployment before 2018 across California, Texas, and Florida.",
+      "ground_truth": "Before 2018 California had the highest unemployment rate, followed by Florida and then Texas."
+    }
+  ]
+}

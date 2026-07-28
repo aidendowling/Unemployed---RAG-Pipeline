@@ -1,6 +1,6 @@
-from datetime import datetime, timezone
-from typing import Dict, Any
 import re
+from datetime import datetime, timezone
+from typing import Any, Dict
 
 
 def _extract_years_from_query(query: str) -> tuple[int | None, int | None]:
@@ -113,7 +113,7 @@ def query_intent_vintage_score(
     return float(max(0.0, min(1.0, score)))
 
 
-
+class FreshnessScorer:
     """Simple freshness scoring using exponential decay based on document updated timestamp.
 
     The score is 0..1 where 1 is perfectly fresh. Uses half-life in days to compute decay.

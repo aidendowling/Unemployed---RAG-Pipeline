@@ -7,20 +7,40 @@ from typing import Any
 
 import chromadb
 
+from ..config import DEFAULT_EMBEDDING_MODEL
+from ..embedding.embedder import TextEmbedder
+
 
 class SemanticRetriever:
     """Semantic search using embeddings stored in Chroma."""
 
-    def __init__(self, index_dir: Path, collection_name: str = "labor_market") -> None:
+    def __init__(
+        self,
+        index_dir: Path,
+        collection_name: str = "labor_market",
+        model_name: str = DEFAULT_EMBEDDING_MODEL,
+    ) -> None:
         """Initialize semantic retriever from a Chroma index.
 
         Args:
             index_dir: Directory containing the Chroma index
             collection_name: Name of the Chroma collection to use
+            model_name: SentenceTransformer used to embed queries. Must match the
+                model used at index time, otherwise query and document vectors
+                live in different spaces.
         """
         self.index_dir = index_dir
         self.collection_name = collection_name
+        self.model_name = model_name
+        self._embedder: TextEmbedder | None = None
         self._load_collection()
+
+    @property
+    def embedder(self) -> TextEmbedder:
+        """Lazily load the query embedder so importing stays cheap."""
+        if self._embedder is None:
+            self._embedder = TextEmbedder(self.model_name)
+        return self._embedder
 
     def _load_collection(self) -> None:
         """Load the Chroma collection."""
@@ -41,7 +61,9 @@ class SemanticRetriever:
         Returns:
             List of dicts with 'id', 'text', 'score', and 'metadata' keys
         """
-        results = self.collection.query(query_texts=[query], n_results=k)
+        results = self.collection.query(
+            query_embeddings=[self.embedder.embed_single(query)], n_results=k
+        )
 
         # Format results consistently with BM25Retriever
         formatted_results = []
