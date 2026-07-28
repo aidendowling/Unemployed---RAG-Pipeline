@@ -1,0 +1,49 @@
+{
+  "questions": [
+    {
+      "question": "What was the national unemployment rate in 2020?"
+    },
+    {
+      "question": "What was the unemployment rate in California in 2020?"
+    },
+    {
+      "question": "How did unemployment in Texas change from 2015 to 2019?"
+    },
+    {
+      "question": "Which state had the lowest unemployment rate in 2022?"
+    },
+    {
+      "question": "What is the size of the Florida labor force?"
+    },
+    {
+      "question": "Compare unemployment before 2018 across California, Texas, and Florida."
+    },
+    {
+      "question": "What was the peak unemployment rate during COVID-19?"
+    },
+    {
+      "question": "How many people were hired in California in 2021?"
+    },
+    {
+      "question": "What were average earnings in Georgia in 2020?"
+    },
+    {
+      "question": "How did job separations change during the pandemic?"
+    },
+    {
+      "question": "What industries had the highest wages in the CPS data?"
+    },
+    {
+      "question": "What is the education distribution in the CPS sample?"
+    },
+    {
+      "question": "How does unemployment correlate with education level?"
+    },
+    {
+      "question": "What was the employment trend from 2019 to 2022?"
+    },
+    {
+      "question": "Which quarter had the most hiring activity in 2021?"
+    }
+  ]
+}
