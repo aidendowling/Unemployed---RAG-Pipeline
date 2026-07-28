@@ -86,8 +86,41 @@ def read_source_file(file_path: Path) -> pd.DataFrame:
     raise ValueError(f"Unsupported file type: {file_path.suffix}")
 
 
+def _extract_vintage_year(row: pd.Series) -> int | None:
+    """Attempt to extract a vintage/year value from a row.
+    
+    Looks for common year/date columns like 'year', 'vintage', 'date', etc.
+    
+    Args:
+        row: A pandas Series representing a row
+        
+    Returns:
+        Extracted year as int, or None if not found
+    """
+    year_candidates = [
+        "year", "vintage", "survey_year", "reference_year",
+        "data_year", "year_col", "years"
+    ]
+    
+    for col in year_candidates:
+        for row_col in row.index:
+            if row_col.lower() == col.lower():
+                val = row[row_col]
+                try:
+                    year = int(val)
+                    if 1900 <= year <= 2100:
+                        return year
+                except (ValueError, TypeError):
+                    pass
+    
+    return None
+
+
 def ingest_file(connection: duckdb.DuckDBPyConnection, file_path: Path) -> IngestionResult:
     """Ingest one source file into DuckDB and return a summary.
+    
+    Normalizes temporal vintage data by extracting year values and adding
+    a `vintage_year` column for obsolescence detection.
 
     Args:
         connection: DuckDB connection
@@ -98,6 +131,10 @@ def ingest_file(connection: duckdb.DuckDBPyConnection, file_path: Path) -> Inges
     """
     table_name = infer_table_name(file_path)
     frame = read_source_file(file_path)
+    
+    # Extract and normalize vintage years
+    frame["vintage_year"] = frame.apply(_extract_vintage_year, axis=1)
+    
     connection.register("source_frame", frame)
     connection.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM source_frame")
     connection.unregister("source_frame")

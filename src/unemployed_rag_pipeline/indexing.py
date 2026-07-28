@@ -103,6 +103,9 @@ def row_to_text(row: pd.Series) -> str:
 def dataframe_to_rows(table_name: str, frame: pd.DataFrame) -> list[IndexedRow]:
     """Convert a DataFrame into retrieval-ready row documents.
 
+    Extracts vintage_year from each row if present and includes it in metadata
+    for query-intent-aware obsolescence filtering.
+
     Args:
         table_name: Name of the source table
         frame: DataFrame to convert
@@ -117,6 +120,16 @@ def dataframe_to_rows(table_name: str, frame: pd.DataFrame) -> list[IndexedRow]:
             "table_name": table_name,
             "row_number": row_number,
         }
+        
+        # Extract vintage_year if present
+        if "vintage_year" in frame.columns:
+            vintage_year = row.get("vintage_year")
+            if pd.notna(vintage_year):
+                try:
+                    metadata["vintage_year"] = int(vintage_year)
+                except (ValueError, TypeError):
+                    pass
+        
         records.append(
             IndexedRow(
                 id=f"{_sanitize_identifier(table_name)}_{row_number}",

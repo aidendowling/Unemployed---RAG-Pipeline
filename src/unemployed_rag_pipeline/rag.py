@@ -60,6 +60,87 @@ class RAGPipeline:
         return {"answer": answer, "sources": [d.get("id") for d in docs], "docs": docs}
 
 
+class OpenRouterGenerator:
+    """LLM-based generator using OpenRouter API (OpenAI-compatible).
+    
+    Calls a remote LLM via OpenRouter to generate answers from contexts.
+    Requires OPENROUTER_API_KEY to be set in environment.
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: str = "meta-llama/llama-3.1-8b-instruct:free",
+        base_url: str = "https://openrouter.ai/api/v1",
+        temperature: float = 0.7,
+    ) -> None:
+        """
+        Args:
+            api_key: OpenRouter API key. If None, reads from OPENROUTER_API_KEY env var.
+            model: Model identifier on OpenRouter.
+            base_url: OpenRouter API base URL.
+            temperature: Sampling temperature (0.0-1.0).
+        """
+        from openai import OpenAI
+        
+        if api_key is None:
+            import os
+            api_key = os.getenv("OPENROUTER_API_KEY")
+        
+        if not api_key:
+            raise ValueError(
+                "OPENROUTER_API_KEY not set. Set it as environment variable or pass as argument."
+            )
+        
+        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        self.model = model
+        self.temperature = temperature
+
+    def __call__(self, query: str, contexts: Iterable[str]) -> str:
+        """Generate answer from query and retrieved contexts.
+        
+        Args:
+            query: User query
+            contexts: Iterable of retrieved document contexts
+            
+        Returns:
+            Generated answer string
+        """
+        contexts_list = list(contexts)
+        if not contexts_list:
+            return f"No retrieved context available. Query: {query}"
+
+        contexts_text = "\n\n---\n\n".join(contexts_list)
+        
+        system_prompt = (
+            "You are a helpful assistant that answers questions about U.S. labor market data. "
+            "Use the provided documents to answer the question accurately. "
+            "If the documents don't contain relevant information, say so clearly. "
+            "Always cite your sources from the documents."
+        )
+        
+        user_prompt = (
+            f"Documents:\n\n{contexts_text}\n\n"
+            f"Question: {query}\n\n"
+            "Please provide a concise answer based on the documents above."
+        )
+        
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=self.temperature,
+                max_tokens=1024,
+            )
+            return response.choices[0].message.content or "No response generated."
+        except Exception as e:
+            # Fallback to default behavior on error
+            return f"Error generating response: {e}"
+
+
 class DefaultGenerator:
     """Simple generator that formats retrieved contexts into a best-effort answer.
 

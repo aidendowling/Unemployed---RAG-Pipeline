@@ -1,8 +1,119 @@
 from datetime import datetime, timezone
 from typing import Dict, Any
+import re
 
 
-class FreshnessChecker:
+def _extract_years_from_query(query: str) -> tuple[int | None, int | None]:
+    """Extract implied time range from a query text.
+    
+    Looks for patterns like:
+    - "2020" or "in 2020" -> (2020, 2020)
+    - "2015-2020" or "2015 to 2020" -> (2015, 2020)
+    - "since 2015" or "after 2015" -> (2015, current_year)
+    - "before 2020" or "until 2020" -> (None, 2020)
+    
+    Args:
+        query: Query text to analyze
+        
+    Returns:
+        Tuple of (start_year, end_year) or (None, None) if no years detected
+    """
+    current_year = datetime.now().year
+    query_lower = query.lower()
+    
+    # Pattern 1: "YEAR - YEAR" or "YEAR to YEAR" (range)
+    range_match = re.search(r'(\d{4})\s*(?:to|-|through)\s*(\d{4})', query_lower)
+    if range_match:
+        return (int(range_match.group(1)), int(range_match.group(2)))
+    
+    # Pattern 2: "since YEAR" or "after YEAR" (open-ended from)
+    since_match = re.search(r'(?:since|after|from)\s+(\d{4})', query_lower)
+    if since_match:
+        return (int(since_match.group(1)), current_year)
+    
+    # Pattern 3: "before YEAR" or "until YEAR" (open-ended to)
+    before_match = re.search(r'(?:before|until|by)\s+(\d{4})', query_lower)
+    if before_match:
+        return (1900, int(before_match.group(1)))
+    
+    # Pattern 4: "in YEAR" or just a standalone YEAR
+    year_match = re.search(r'\b(19\d{2}|20\d{2})\b', query_lower)
+    if year_match:
+        year = int(year_match.group(1))
+        return (year, year)
+    
+    return (None, None)
+
+
+def query_intent_vintage_score(
+    metadata: Dict[str, Any] | None,
+    query: str,
+    *,
+    default_window_years: int = 5,
+    current_year: int | None = None,
+) -> float:
+    """Score a document's relevance based on query-intent and vintage year alignment.
+    
+    If query implies a time range (e.g. "unemployment in 2020"), documents
+    with vintage_year within or near that range score higher (1.0).
+    Documents far from the implied range score lower, approaching 0.
+    If no time intent is detected in query, returns 1.0 (fully relevant).
+    
+    Args:
+        metadata: Document metadata (should contain 'vintage_year' if applicable)
+        query: User query text
+        default_window_years: If query specifies a single year, expand window by this many years
+        current_year: Override current year (for testing); defaults to actual current year
+        
+    Returns:
+        Score from 0.0 (document vintage far from query intent) to 1.0 (well-aligned)
+    """
+    if metadata is None or "vintage_year" not in metadata:
+        # No vintage data available; assume relevant
+        return 1.0
+    
+    current_year = current_year or datetime.now().year
+    
+    # Extract query-implied time range
+    start_year, end_year = _extract_years_from_query(query)
+    
+    # If no time intent detected, document is fully relevant
+    if start_year is None and end_year is None:
+        return 1.0
+    
+    # Ensure we have a valid range
+    if start_year is None:
+        start_year = 1900
+    if end_year is None:
+        end_year = current_year
+    
+    # Expand single-year intent into a window
+    if start_year == end_year:
+        start_year = max(1900, start_year - default_window_years)
+        end_year = min(current_year, end_year + default_window_years)
+    
+    try:
+        doc_vintage = int(metadata.get("vintage_year"))
+    except (ValueError, TypeError):
+        return 1.0
+    
+    # Perfect match: within query-implied range
+    if start_year <= doc_vintage <= end_year:
+        return 1.0
+    
+    # Out of range: compute decay based on distance
+    # Distance to nearest year in the range
+    if doc_vintage < start_year:
+        distance = start_year - doc_vintage
+    else:
+        distance = doc_vintage - end_year
+    
+    # Exponential decay: each year outside range reduces score
+    score = 0.5 ** (distance / 10.0)  # Half-life of 10 years
+    return float(max(0.0, min(1.0, score)))
+
+
+
     """Simple freshness scoring using exponential decay based on document updated timestamp.
 
     The score is 0..1 where 1 is perfectly fresh. Uses half-life in days to compute decay.
