@@ -180,9 +180,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--query", help="If provided, run a single query and exit. Otherwise interactive."
     )
     qa_parser.add_argument(
+        "--questions",
+        type=Path,
+        default=None,
+        help="JSON file of questions to run in batch (outputs all answers to --output).",
+    )
+    qa_parser.add_argument(
         "--show-context", action="store_true", help="Print the retrieved context passages."
     )
     qa_parser.add_argument("--json", action="store_true", help="Emit the raw response as JSON.")
+    qa_parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Write the response as JSON to this file (e.g. data/outputs/answer.json).",
+    )
 
     eval_parser = subparsers.add_parser(
         "eval", help="Score the query engine with RAGAS (or offline heuristics)."
@@ -372,6 +384,7 @@ REPL_HELP = """Commands:
   :sources           Re-print sources for the last query
   :context           Print retrieved context for the last query
   :warnings          Re-print warnings for the last query
+  :save <file>       Save the last response as JSON (e.g. :save output.json)
   :set k <n>         Change how many documents are retrieved
   :exit              Leave the REPL (also: exit, quit, Ctrl-D)
 Anything else is treated as a question."""
@@ -419,11 +432,29 @@ def _run_repl(orchestrator: RAGOrchestrator, args: argparse.Namespace) -> None:
                 else:
                     for warning in last.get("warnings", []) or ["(none)"]:
                         print(f"! {warning}")
+            elif command == ":save":
+                if last is None:
+                    print("No query has been run yet.")
+                elif len(parts) < 2:
+                    print("Usage: :save <filename.json>")
+                else:
+                    save_path = Path(parts[1]).expanduser()
+                    save_path.parent.mkdir(parents=True, exist_ok=True)
+                    output_data = {
+                        "query": last.get("_query", ""),
+                        "answer": last["answer"],
+                        "provenance": last.get("provenance", []),
+                        "warnings": last.get("warnings", []),
+                        "contexts": last.get("contexts", []),
+                    }
+                    save_path.write_text(json.dumps(output_data, indent=2), encoding="utf-8")
+                    print(f"Saved to {save_path}")
             else:
                 print(f"Unknown command {command!r}. Type ':help'.")
             continue
 
         response = orchestrator.answer(entry, k=state["k"])
+        response["_query"] = entry
         state["last"] = response
         _print_response(response, show_context=args.show_context)
 
@@ -571,15 +602,79 @@ def _command_qa(args: argparse.Namespace) -> None:
     if orchestrator is None:
         return
 
+    # Batch mode: run a file of questions and output all answers
+    if args.questions:
+        _run_batch_qa(orchestrator, args)
+        return
+
     if args.query:
         response = orchestrator.answer(args.query, k=args.k)
-        if args.json:
-            print(json.dumps({key: response[key] for key in ("answer", "provenance", "warnings")}, indent=2))
+        if args.json or args.output:
+            output_data = {
+                "query": args.query,
+                "answer": response["answer"],
+                "provenance": response["provenance"],
+                "warnings": response["warnings"],
+                "contexts": response.get("contexts", []),
+            }
+            json_str = json.dumps(output_data, indent=2)
+            if args.json:
+                print(json_str)
+            if args.output:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(json_str, encoding="utf-8")
+                print(f"Response written to {args.output}")
         else:
             _print_response(response, show_context=args.show_context)
         return
 
     _run_repl(orchestrator, args)
+
+
+def _run_batch_qa(orchestrator: RAGOrchestrator, args: argparse.Namespace) -> None:
+    """Run a batch of questions from a JSON file and write all answers to output."""
+    from datetime import datetime, timezone
+
+    questions_path = args.questions
+    if not questions_path.exists():
+        print(f"Questions file not found: {questions_path}")
+        return
+
+    payload = json.loads(questions_path.read_text(encoding="utf-8"))
+    items = payload["questions"] if isinstance(payload, dict) and "questions" in payload else payload
+    if isinstance(items[0], str):
+        questions = items
+    else:
+        questions = [item["question"] if isinstance(item, dict) else str(item) for item in items]
+
+    print(f"Running {len(questions)} question(s) from {questions_path}...\n")
+
+    results = []
+    for i, question in enumerate(questions, 1):
+        print(f"  [{i}/{len(questions)}] {question}")
+        response = orchestrator.answer(question, k=args.k)
+        results.append({
+            "question": question,
+            "answer": response["answer"],
+            "provenance": response["provenance"],
+            "warnings": response["warnings"],
+            "contexts": response.get("contexts", []),
+        })
+        # Print a short preview of the answer
+        answer_preview = response["answer"][:120].replace("\n", " ")
+        print(f"           → {answer_preview}{'...' if len(response['answer']) > 120 else ''}\n")
+
+    report = {
+        "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+        "questions_file": str(questions_path),
+        "total_questions": len(results),
+        "results": results,
+    }
+
+    output_path = args.output or Path("data/outputs/batch_answers.json")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print(f"Batch report written to {output_path} ({len(results)} answers)")
 
 
 def _command_eval(args: argparse.Namespace) -> None:
